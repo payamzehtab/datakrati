@@ -13,6 +13,16 @@ const AlertCircle = () => <span>⚠️</span>;
 const CheckCircle2 = () => <span>✅</span>;
 const MinusCircle = () => <span>➖</span>;
 const HelpCircle = () => <span>❓</span>;
+const partyColors = {
+  S: "bg-red-500",
+  M: "bg-blue-500",
+  SD: "bg-yellow-400",
+  V: "bg-red-700",
+  C: "bg-green-500",
+  KD: "bg-sky-700",
+  MP: "bg-green-700",
+  L: "bg-blue-400",
+};
 
 
 const Card = (props) => {
@@ -59,7 +69,17 @@ const groupVotesByParty = (votes) => {
     else if (vote.rost === "Frånvarande") parties[party].absent += 1;
   });
 
-  return Object.values(parties);
+  const partyOrder = ["S", "M", "SD", "V", "C", "KD", "MP", "L"];
+
+return Object.values(parties).sort((a, b) => {
+  const indexA = partyOrder.indexOf(a.party);
+  const indexB = partyOrder.indexOf(b.party);
+
+  return (
+    (indexA === -1 ? 999 : indexA) -
+    (indexB === -1 ? 999 : indexB)
+  );
+});
 };
 const createVoteList = (votes) => {
   const seen = new Map();
@@ -134,6 +154,48 @@ const detectCategory = (title = "") => {
   ) {
     return "Arbetsmarknad";
   }
+
+  if (
+  text.includes("försvar") ||
+  text.includes("nato") ||
+  text.includes("militär")
+) {
+  return "Försvar & säkerhet";
+}
+
+if (
+  text.includes("ekonomi") ||
+  text.includes("skatt") ||
+  text.includes("budget") ||
+  text.includes("finans")
+) {
+  return "Ekonomi & skatt";
+}
+
+if (
+  text.includes("bostad") ||
+  text.includes("hyra") ||
+  text.includes("bygg")
+) {
+  return "Bostäder";
+}
+
+if (
+  text.includes("transport") ||
+  text.includes("järnväg") ||
+  text.includes("väg") ||
+  text.includes("trafik")
+) {
+  return "Transport & infrastruktur";
+}
+
+if (
+  text.includes("landsbygd") ||
+  text.includes("jordbruk") ||
+  text.includes("skog")
+) {
+  return "Landsbygd & jordbruk";
+}
 
   return "Övrigt";
 };
@@ -273,13 +335,16 @@ function StatCard({ icon: Icon, title, value, sub }) {
 }
 
 function VoteBar({ label, value, total, type }) {
-  const width = `${Math.max(2, (value / total) * 100)}%`;
+  const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+const width = `${Math.max(2, percentage)}%`;
   const color = type === "yes" ? "bg-emerald-600" : type === "no" ? "bg-rose-600" : type === "abstain" ? "bg-amber-500" : "bg-slate-300";
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-xs text-slate-500">
         <span>{label}</span>
-        <span>{value}</span>
+        <span>
+  {value} ({percentage}%)
+</span>
       </div>
       <div className="h-2 rounded-full bg-slate-100">
         <div className={`h-2 rounded-full ${color}`} style={{ width }} />
@@ -290,18 +355,36 @@ function VoteBar({ label, value, total, type }) {
 
 function PartyRow({ row }) {
   const total = row.yes + row.no + row.abstain + row.absent;
+
   return (
-    <div className="grid grid-cols-12 gap-3 items-center border-b border-slate-100 py-4 last:border-b-0">
+    <div className="grid grid-cols-12 items-center gap-3 border-b border-slate-100 py-4 last:border-b-0">
       <div className="col-span-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">{row.party}</div>
+          <div
+            className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${
+              partyColors[row.party] || "bg-slate-900"
+            }`}
+          >
+            {row.party}
+          </div>
         </div>
       </div>
+
       <div className="col-span-10 grid grid-cols-4 gap-3">
         <VoteBar label="Ja" value={row.yes} total={total} type="yes" />
         <VoteBar label="Nej" value={row.no} total={total} type="no" />
-        <VoteBar label="Avstår" value={row.abstain} total={total} type="abstain" />
-        <VoteBar label="Frånvarande" value={row.absent} total={total} type="absent" />
+        <VoteBar
+          label="Avstår"
+          value={row.abstain}
+          total={total}
+          type="abstain"
+        />
+        <VoteBar
+          label="Frånvarande"
+          value={row.absent}
+          total={total}
+          type="absent"
+        />
       </div>
     </div>
   );
@@ -316,6 +399,7 @@ export default function DatakratiPrototype() {
   const [selectedVoteId, setSelectedVoteId] = useState(null);
   const [voteSearch, setVoteSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("Alla");
+  const [sortMode, setSortMode] = useState("Senaste först");
   const [selectedPeriod, setSelectedPeriod] = useState("2022-2026");
   const [allVoteRows, setAllVoteRows] = useState([]);
 
@@ -371,14 +455,22 @@ const documentEntries = await Promise.all(
     const documentData = await documentResponse.json();
 
     return [
-      dokId,
-      {
-        title: documentData.dokumentstatus?.dokument?.titel || "Okänd titel",
-        type:
-          documentData.dokumentstatus?.dokument?.dokumentnamn ||
-          "Okänd dokumenttyp",
-      },
-    ];
+  dokId,
+  {
+    title: documentData.dokumentstatus?.dokument?.titel || "Okänd titel",
+    type:
+      documentData.dokumentstatus?.dokument?.dokumentnamn ||
+      "Okänd dokumenttyp",
+    url:
+      documentData.dokumentstatus?.dokument?.dokument_url_html ||
+      documentData.dokumentstatus?.dokument?.dokument_url_text ||
+      "",
+      summary:
+  documentData.dokumentstatus?.dokument?.summary ||
+  documentData.dokumentstatus?.dokument?.undertitel ||
+  "",
+  },
+];
   })
 );
 
@@ -407,17 +499,34 @@ const selectedDocument = selectedVote
   "Kriminalitet",
   "Vård & hälsa",
   "Arbetsmarknad",
+  "Försvar & säkerhet",
+  "Ekonomi & skatt",
+  "Bostäder",
+  "Transport & infrastruktur",
+  "Landsbygd & jordbruk",
   "Övrigt",
+];
+const sortOptions = [
+  "Senaste först",
+  "Äldsta först",
+  "Titel A–Ö",
 ];
 const activeMandate =
   mandatePeriods.find(
     (period) => period.label === selectedPeriod
   ) || mandatePeriods[0];  
-const filteredVoteList = voteList.filter((vote) => {
+const filteredVoteList = [...voteList]
+  .filter((vote) => {
   const document = documents[vote.dokId];
-  const searchText = `${document?.title || ""} ${vote.beteckning} ${vote.dokId}`.toLowerCase();
-
   const category = detectCategory(document?.title || "");
+
+const searchText = `
+  ${document?.title || ""}
+  ${document?.type || ""}
+  ${category}
+  ${vote.beteckning}
+  ${vote.dokId}
+`.toLowerCase();
 
 const matchesSearch = searchText.includes(
   voteSearch.toLowerCase()
@@ -428,6 +537,23 @@ const matchesCategory =
   category === selectedCategory;
 
 return matchesSearch && matchesCategory;
+})
+.sort((a, b) => {
+  if (sortMode === "Äldsta först") {
+    return new Date(a.datum) - new Date(b.datum);
+  }
+
+  if (sortMode === "Titel A–Ö") {
+    const titleA =
+      documents[a.dokId]?.title || "";
+
+    const titleB =
+      documents[b.dokId]?.title || "";
+
+    return titleA.localeCompare(titleB, "sv");
+  }
+
+  return new Date(b.datum) - new Date(a.datum);
 });
 const totals = useMemo(() => {
     return selectedPartyVotes.reduce(
@@ -533,37 +659,9 @@ const strongestNoParty = selectedPartyVotes.reduce(
                 ))}
               </div>
 
-              <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-500">Huvudområden</p>
-                    <h3 className="text-xl font-semibold text-slate-900">Välj en av de viktigaste valfrågorna 2026</h3>
-                    <p className="mt-1 text-sm text-slate-600">Varje område kan användas som filter för voteringar, dokument, anföranden, partier och ledamöter.</p>
-                  </div>
-                  <Button variant="outline" className="rounded-full gap-2"><Filter className="h-4 w-4" /> Ändra område</Button>
-                </div>
-                <div className="mt-5 grid gap-3 md:grid-cols-3">
-                  {electionIssues.map((issue, index) => (
-                    <div key={issue.name} className={`rounded-2xl border p-4 ${index === 0 ? "border-slate-900 bg-white" : "border-slate-200 bg-white"}`}>
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="font-semibold text-slate-900">{issue.name}</p>
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{issue.share}</span>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-600">{issue.description}</p>
-                      <p className="mt-2 text-xs text-slate-500">Exempel: {issue.examples}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          
 
-              <div className="mt-6 grid gap-4 md:grid-cols-3">
-                {featureCards.map((feature) => (
-                  <div key={feature.title} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="font-semibold text-slate-900">{feature.title}</p>
-                    <p className="mt-2 text-sm text-slate-600">{feature.text}</p>
-                  </div>
-                ))}
-              </div>
+              
             </CardContent>
           </Card>
         </section>
@@ -582,6 +680,21 @@ const strongestNoParty = selectedPartyVotes.reduce(
   {selectedDocument?.type || "Dokument"} ·{" "}
   {selectedVote?.beteckning} punkt {selectedVote?.punkt}
 </p>
+{selectedDocument?.summary && (
+  <p className="mt-3 max-w-2xl text-sm text-slate-600">
+    {selectedDocument.summary}
+  </p>
+)}
+{selectedDocument?.url && (
+  <a
+    href={selectedDocument.url}
+    target="_blank"
+    rel="noreferrer"
+    className="mt-3 inline-flex rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+  >
+    Öppna originaldokument hos riksdagen ↗
+  </a>
+)}
 <p className="mt-1 text-xs text-slate-400">
   {selectedVote?.datum
     ? new Date(selectedVote.datum).toLocaleString("sv-SE")
@@ -708,12 +821,30 @@ const strongestNoParty = selectedPartyVotes.reduce(
     ))}
   </select>
 </div>
+<div className="mt-3">
+  <select
+    value={sortMode}
+    onChange={(e) => setSortMode(e.target.value)}
+    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-400"
+  >
+    {sortOptions.map((option) => (
+      <option key={option} value={option}>
+        {option}
+      </option>
+    ))}
+  </select>
+</div>
               <p className="mt-2 text-sm text-slate-500">
                Visar {filteredVoteList.length} voteringar för vald mandatperiod och filter.
               </p>
 
               <div className="mt-4 space-y-3">
-                 {filteredVoteList.slice(0, 8).map((vote) => (
+                {filteredVoteList.length === 0 && (
+  <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+    Inga voteringar matchar vald sökning eller kategori.
+  </p>
+)}
+                 {filteredVoteList.slice(0, 20).map((vote) => (
                    <div
   key={vote.id}
   onClick={() => setSelectedVoteId(vote.id)}
