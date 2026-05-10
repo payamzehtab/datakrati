@@ -65,7 +65,10 @@ const createVoteList = (votes) => {
   const seen = new Map();
 
   votes.forEach((vote) => {
-    if (!seen.has(vote.votering_id)) {
+    if (
+  vote.votering_id &&
+  !seen.has(vote.votering_id)
+) {
       seen.set(vote.votering_id, {
         id: vote.votering_id,
         beteckning: vote.beteckning,
@@ -76,7 +79,9 @@ const createVoteList = (votes) => {
     }
   });
 
-  return Array.from(seen.values());
+  return Array.from(seen.values()).sort(
+  (a, b) => new Date(b.datum) - new Date(a.datum)
+);
 };
 const detectCategory = (title = "") => {
   const text = title.toLowerCase();
@@ -227,11 +232,19 @@ const periods = [
   },
 ];
 
-const riksdagYears = [
-  "2025/26",
-  "2024/25",
-  "2023/24",
-  "2022/23",
+const mandatePeriods = [
+  {
+    label: "2022–2026",
+    years: ["2025/26", "2024/25", "2023/24", "2022/23"],
+  },
+  {
+    label: "2018–2022",
+    years: ["2021/22", "2020/21", "2019/20", "2018/19"],
+  },
+  {
+    label: "2014–2018",
+    years: ["2017/18", "2016/17", "2015/16", "2014/15"],
+  },
 ];
 
 const members = [
@@ -303,13 +316,31 @@ export default function DatakratiPrototype() {
   const [selectedVoteId, setSelectedVoteId] = useState(null);
   const [voteSearch, setVoteSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("Alla");
-  const [selectedPeriod, setSelectedPeriod] = useState("2025/26");
+  const [selectedPeriod, setSelectedPeriod] = useState("2022-2026");
   const [allVoteRows, setAllVoteRows] = useState([]);
 
 React.useEffect(() => {
   async function loadVotes() {
-   const response = await fetch(`/api/voteringar?rm=${selectedPeriod}`);
-    const data = await response.json();
+  const responses = await Promise.all(
+  activeMandate.years.map((year) =>
+    fetch(`/api/voteringar?rm=${year}`)
+  )
+);
+
+const dataSets = await Promise.all(
+  responses.map((response) => response.json())
+);
+
+const allVotes = dataSets.flatMap(
+  (data) => data.voteringlista?.votering || []
+);
+
+const data = {
+  voteringlista: {
+    votering: allVotes,
+  },
+};
+    
 setAllVoteRows(data.voteringlista.votering);
     const grouped = groupVotesByParty(
       data.voteringlista.votering
@@ -378,7 +409,11 @@ const selectedDocument = selectedVote
   "Arbetsmarknad",
   "Övrigt",
 ];
-  const filteredVoteList = voteList.filter((vote) => {
+const activeMandate =
+  mandatePeriods.find(
+    (period) => period.label === selectedPeriod
+  ) || mandatePeriods[0];  
+const filteredVoteList = voteList.filter((vote) => {
   const document = documents[vote.dokId];
   const searchText = `${document?.title || ""} ${vote.beteckning} ${vote.dokId}`.toLowerCase();
 
@@ -645,11 +680,11 @@ const strongestNoParty = selectedPartyVotes.reduce(
     onChange={(e) => setSelectedPeriod(e.target.value)}
     className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-400"
   >
-    {riksdagYears.map((period) => (
-      <option key={period} value={period}>
-        {period}
-      </option>
-    ))}
+    {mandatePeriods.map((period) => (
+  <option key={period.label} value={period.label}>
+    {period.label}
+  </option>
+))}
   </select>
 </div>
   <input
@@ -674,7 +709,7 @@ const strongestNoParty = selectedPartyVotes.reduce(
   </select>
 </div>
               <p className="mt-2 text-sm text-slate-500">
-               Klickbar lista kommer senare. Just nu visar vi vilka voteringar som hämtats.
+               Visar {filteredVoteList.length} voteringar för vald mandatperiod och filter.
               </p>
 
               <div className="mt-4 space-y-3">
