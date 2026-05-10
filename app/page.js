@@ -61,6 +61,77 @@ const groupVotesByParty = (votes) => {
 
   return Object.values(parties);
 };
+const createVoteList = (votes) => {
+  const seen = new Map();
+
+  votes.forEach((vote) => {
+    if (!seen.has(vote.votering_id)) {
+      seen.set(vote.votering_id, {
+        id: vote.votering_id,
+        beteckning: vote.beteckning,
+        punkt: vote.punkt,
+        dokId: vote.dok_id,
+        datum: vote.systemdatum,
+      });
+    }
+  });
+
+  return Array.from(seen.values());
+};
+const detectCategory = (title = "") => {
+  const text = title.toLowerCase();
+
+  if (
+    text.includes("klimat") ||
+    text.includes("miljö") ||
+    text.includes("energi") ||
+    text.includes("kärnkraft")
+  ) {
+    return "Energi & klimat";
+  }
+
+  if (
+    text.includes("skola") ||
+    text.includes("utbildning") ||
+    text.includes("universitet")
+  ) {
+    return "Skola & utbildning";
+  }
+
+  if (
+    text.includes("migration") ||
+    text.includes("asyl") ||
+    text.includes("integration")
+  ) {
+    return "Migration & integration";
+  }
+
+  if (
+    text.includes("brott") ||
+    text.includes("polis") ||
+    text.includes("kriminal")
+  ) {
+    return "Kriminalitet";
+  }
+
+  if (
+    text.includes("sjukvård") ||
+    text.includes("hälsa") ||
+    text.includes("vård")
+  ) {
+    return "Vård & hälsa";
+  }
+
+  if (
+    text.includes("arbete") ||
+    text.includes("arbetsrätt") ||
+    text.includes("arbetsmarknad")
+  ) {
+    return "Arbetsmarknad";
+  }
+
+  return "Övrigt";
+};
 
 const mainTabs = [
   { label: "Översikt", active: true },
@@ -137,10 +208,30 @@ const democracyLevels = [
 ];
 
 const periods = [
-  { label: "2022–2026", description: "Senaste mandatperioden", active: true },
-  { label: "2018–2022", description: "Föregående mandatperiod" },
-  { label: "2014–2018", description: "Historisk jämförelse" },
-  { label: "2000–idag", description: "Maxläge för djupare analys" },
+  {
+    label: "2022–2026",
+    description: "Senaste mandatperioden",
+    active: true,
+  },
+  {
+    label: "2018–2022",
+    description: "Föregående mandatperiod",
+  },
+  {
+    label: "2014–2018",
+    description: "Historisk jämförelse",
+  },
+  {
+    label: "2000–idag",
+    description: "Maxläge för djupare analys",
+  },
+];
+
+const riksdagYears = [
+  "2025/26",
+  "2024/25",
+  "2023/24",
+  "2022/23",
 ];
 
 const members = [
@@ -206,23 +297,105 @@ function PartyRow({ row }) {
 export default function DatakratiPrototype() {
   const [query, setQuery] = useState("Hur har partierna röstat i frågor om kärnkraft sedan 2022?");
   const [votes, setVotes] = useState([]);
+  const [voteInfo, setVoteInfo] = useState(null);
+  const [voteList, setVoteList] = useState([]);
+  const [documents, setDocuments] = useState({});
+  const [selectedVoteId, setSelectedVoteId] = useState(null);
+  const [voteSearch, setVoteSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("Alla");
+  const [selectedPeriod, setSelectedPeriod] = useState("2025/26");
+  const [allVoteRows, setAllVoteRows] = useState([]);
 
 React.useEffect(() => {
   async function loadVotes() {
-    const response = await fetch("/api/voteringar");
+   const response = await fetch(`/api/voteringar?rm=${selectedPeriod}`);
     const data = await response.json();
-
+setAllVoteRows(data.voteringlista.votering);
     const grouped = groupVotesByParty(
       data.voteringlista.votering
     );
+    const list = createVoteList(
+  data.voteringlista.votering
+);
+    const firstVote = data.voteringlista.votering[0];
 
+setVoteInfo({
+  rm: firstVote.rm,
+  beteckning: firstVote.beteckning,
+  punkt: firstVote.punkt,
+  dokId: firstVote.dok_id,
+  datum: firstVote.systemdatum,
+  avser: firstVote.avser,
+});
     setVotes(grouped);
+    setVoteList(list);
+    if (list.length > 0) {
+  setSelectedVoteId(list[0].id);
+}
+    const uniqueDokIds = [...new Set(list.map((vote) => vote.dokId))];
+
+const documentEntries = await Promise.all(
+  uniqueDokIds.slice(0, 8).map(async (dokId) => {
+    const documentResponse = await fetch(`/api/dokument?dokId=${dokId}`);
+    const documentData = await documentResponse.json();
+
+    return [
+      dokId,
+      {
+        title: documentData.dokumentstatus?.dokument?.titel || "Okänd titel",
+        type:
+          documentData.dokumentstatus?.dokument?.dokumentnamn ||
+          "Okänd dokumenttyp",
+      },
+    ];
+  })
+);
+
+setDocuments(Object.fromEntries(documentEntries));
   }
 
   loadVotes();
-}, []);
-  const totals = useMemo(() => {
-    return votes.reduce(
+}, [selectedPeriod]);
+const selectedVoteRows = selectedVoteId
+  ? allVoteRows.filter((row) => row.votering_id === selectedVoteId)
+  : allVoteRows;
+
+const selectedPartyVotes = groupVotesByParty(selectedVoteRows);
+const selectedVote = voteList.find(
+  (vote) => vote.id === selectedVoteId
+);
+
+const selectedDocument = selectedVote
+  ? documents[selectedVote.dokId]
+  : null;  
+ const categories = [
+  "Alla",
+  "Energi & klimat",
+  "Skola & utbildning",
+  "Migration & integration",
+  "Kriminalitet",
+  "Vård & hälsa",
+  "Arbetsmarknad",
+  "Övrigt",
+];
+  const filteredVoteList = voteList.filter((vote) => {
+  const document = documents[vote.dokId];
+  const searchText = `${document?.title || ""} ${vote.beteckning} ${vote.dokId}`.toLowerCase();
+
+  const category = detectCategory(document?.title || "");
+
+const matchesSearch = searchText.includes(
+  voteSearch.toLowerCase()
+);
+
+const matchesCategory =
+  selectedCategory === "Alla" ||
+  category === selectedCategory;
+
+return matchesSearch && matchesCategory;
+});
+const totals = useMemo(() => {
+    return selectedPartyVotes.reduce(
       (acc, row) => {
         acc.yes += row.yes;
         acc.no += row.no;
@@ -232,7 +405,27 @@ React.useEffect(() => {
       },
       { yes: 0, no: 0, abstain: 0, absent: 0 }
     );
-  }, []);
+  }, [selectedPartyVotes]);
+  const resultText =
+  totals.yes > totals.no
+    ? "Bifall."
+    : totals.no > totals.yes
+      ? "Avslag."
+      : "Ja- och nej-rösterna var lika många.";
+  const strongestYesParty = selectedPartyVotes.reduce(
+  (top, party) => (party.yes > top.yes ? party : top),
+  { party: "-", yes: 0 }
+);
+
+const strongestNoParty = selectedPartyVotes.reduce(
+  (top, party) => (party.no > top.no ? party : top),
+  { party: "-", no: 0 }
+);
+  totals.yes > totals.no
+    ? "Bifall."
+    : totals.no > totals.yes
+      ? "Avslag."
+      : "Ja- och nej-rösterna var lika många.";
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -346,61 +539,182 @@ React.useEffect(() => {
                 <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
                   <div>
                     <p className="mb-2 text-sm font-medium text-slate-500">Exempelvy</p>
-                    <h2 className="max-w-2xl text-3xl font-bold tracking-tight md:text-4xl">Hur röstade riksdagen i en enskild fråga?</h2>
+<h2 className="max-w-2xl text-3xl font-bold tracking-tight md:text-4xl">
+  {selectedDocument?.title || "Vald votering"}
+</h2>
+
+<p className="mt-2 text-sm text-slate-500">
+  {selectedDocument?.type || "Dokument"} ·{" "}
+  {selectedVote?.beteckning} punkt {selectedVote?.punkt}
+</p>
+<p className="mt-1 text-xs text-slate-400">
+  {selectedVote?.datum
+    ? new Date(selectedVote.datum).toLocaleString("sv-SE")
+    : ""}
+</p>
+
+{voteInfo && (
+  <div className="mt-4 text-sm text-slate-600">
+    <p>
+      <span className="font-medium">Votering:</span>{" "}
+      {voteInfo.beteckning} punkt {voteInfo.punkt}
+    </p>
+
+    <p>
+      <span className="font-medium">Dokument:</span>{" "}
+      {voteInfo.dokId}
+    </p>
+
+    <p>
+      <span className="font-medium">Mandatperiod:</span>{" "}
+      {voteInfo.rm}
+    </p>
+
+    <p>
+      <span className="font-medium">Datum:</span>{" "}
+      {new Date(voteInfo.datum).toLocaleString("sv-SE")}
+    </p>
+  </div>
+)}
                     <p className="mt-3 max-w-2xl text-slate-600">Här visas en sammanfattning av en vald votering med partiernas röster, frånvaro och koppling till beslutsunderlaget.</p>
                   </div>
                   <Button variant="outline" className="rounded-full gap-2"><ExternalLink className="h-4 w-4" /> Källa</Button>
                 </div>
 
-                <div className="mt-6 rounded-2xl bg-slate-50 p-5">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <h3 className="text-xl font-semibold">Betänkande: Energipolitikens inriktning</h3>
-                      <p className="mt-1 text-sm text-slate-500">Riksmöte 2025/26 · Votering 124 · Område: Klimat & energi</p>
-                    </div>
-                    <div className="flex gap-2 text-sm">
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">Ja {totals.yes}</span>
-                      <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">Nej {totals.no}</span>
-                      <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">Avstår {totals.abstain}</span>
-                    </div>
-                  </div>
-                </div>
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+  <div>
+    <h3 className="text-xl font-semibold">Resultat i voteringen</h3>
+    <p className="mt-1 text-sm text-slate-500">
+      Sammanställning av ledamöternas röster i den valda voteringen.
+    </p>
+    <p className="mt-2 text-sm font-medium text-slate-700">
+  {resultText}
+</p>
+<div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+  <div className="rounded-2xl bg-emerald-50 p-3">
+    <p className="text-xs text-emerald-700">Flest ja-röster</p>
+    <p className="font-semibold text-slate-900">
+      {strongestYesParty.party} ({strongestYesParty.yes})
+    </p>
+  </div>
+
+  <div className="rounded-2xl bg-rose-50 p-3">
+    <p className="text-xs text-rose-700">Flest nej-röster</p>
+    <p className="font-semibold text-slate-900">
+      {strongestNoParty.party} ({strongestNoParty.no})
+    </p>
+  </div>
+</div>
+  </div>
+
+  <div className="flex flex-wrap gap-2 text-sm">
+    <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">
+      Ja {totals.yes}
+    </span>
+    <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+      Nej {totals.no}
+    </span>
+    <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">
+      Avstår {totals.abstain}
+    </span>
+    <span className="rounded-full bg-slate-200 px-3 py-1 text-slate-700">
+      Frånvarande {totals.absent}
+    </span>
+  </div>
+</div>
 
                 <div className="mt-6">
-                  {votes.map((row) => <PartyRow key={row.party} row={row} />)}
+                  {selectedPartyVotes.map((row) => <PartyRow key={row.party} row={row} />)}
                 </div>
               </CardContent>
             </Card>
           </div>
 
           <aside className="space-y-6">
-            <Card className="rounded-3xl border-slate-200 bg-white shadow-sm">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-2">
-                  <MessageSquareText className="h-5 w-5 text-slate-700" />
-                  <h2 className="text-lg font-semibold">Fråga datan</h2>
-                </div>
-                <p className="mt-2 text-sm text-slate-500">Svaren ska beskriva vad som framgår av röstningar och dokument – inte avgöra vad partier “egentligen tycker”.</p>
-                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <textarea value={query} onChange={(e) => setQuery(e.target.value)} className="h-28 w-full resize-none bg-transparent text-sm outline-none" />
-                </div>
-                <Button className="mt-3 w-full rounded-2xl bg-slate-900">Sammanfatta sakligt</Button>
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-slate-700">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="h-5 w-5 text-amber-700" />
-                    <div>
-                      <p className="font-medium text-slate-900">Viktig begränsning</p>
-                      <p className="mt-1">AI-svaret redovisar endast vad som går att utläsa ur valda röstningar, dokument och eventuella källor. För djupare förståelse av partiernas egna motiv, ideologi och mål bör användaren läsa respektive partis partiprogram.</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 rounded-2xl border border-slate-200 p-4 text-sm text-slate-600">
-                  <p className="font-medium text-slate-900">Exempel på sakligt svar</p>
-                  <p className="mt-2">I de voteringar som klassats som kärnkraftsrelaterade under perioden röstade M, KD, L och SD oftast för förslag som ökade eller underlättade kärnkraftsutbyggnad. S, V och MP röstade oftare emot sådana förslag. C varierade beroende på formulering.</p>
-                  <p className="mt-2 text-xs text-slate-500">Källor som bör visas: voteringar, riksdagsdokument och vid behov partipolitiskt obundna nyhetskällor. Osäkerhet: ämnesklassificeringen bör granskas eftersom vissa voteringar gäller bredare energipolitiska paket.</p>
-                </div>
-              </CardContent>
-            </Card>
+           <Card className="rounded-3xl border-slate-200 bg-white shadow-sm">
+            <CardContent className="p-6">
+              <h2 className="text-lg font-semibold">Senaste voteringar</h2>
+              <div className="mt-4">
+  <div className="mt-4">
+  <label className="mb-2 block text-sm font-medium text-slate-700">
+    Riksmöte
+  </label>
+
+  <select
+    value={selectedPeriod}
+    onChange={(e) => setSelectedPeriod(e.target.value)}
+    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-400"
+  >
+    {riksdagYears.map((period) => (
+      <option key={period} value={period}>
+        {period}
+      </option>
+    ))}
+  </select>
+</div>
+  <input
+    type="text"
+    placeholder="Sök votering..."
+    value={voteSearch}
+    onChange={(e) => setVoteSearch(e.target.value)}
+    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-400"
+  />
+</div>
+<div className="mt-3">
+  <select
+    value={selectedCategory}
+    onChange={(e) => setSelectedCategory(e.target.value)}
+    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-400"
+  >
+    {categories.map((category) => (
+      <option key={category} value={category}>
+        {category}
+      </option>
+    ))}
+  </select>
+</div>
+              <p className="mt-2 text-sm text-slate-500">
+               Klickbar lista kommer senare. Just nu visar vi vilka voteringar som hämtats.
+              </p>
+
+              <div className="mt-4 space-y-3">
+                 {filteredVoteList.slice(0, 8).map((vote) => (
+                   <div
+  key={vote.id}
+  onClick={() => setSelectedVoteId(vote.id)}
+  className={`rounded-2xl border p-4 cursor-pointer transition ${
+    selectedVoteId === vote.id
+      ? "border-slate-900 bg-slate-900 text-white"
+      : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+  }`}
+>
+                  <div>
+  <p className="font-medium text-slate-900">
+    {documents[vote.dokId]?.title || "Laddar titel..."}
+  </p>
+
+  <p className="mt-1 text-sm text-slate-500">
+  {documents[vote.dokId]?.type || "Dokument"} •{" "}
+  {vote.beteckning} punkt {vote.punkt}
+</p>
+
+<div className="mt-2">
+  <span className="rounded-full bg-slate-200 px-2 py-1 text-xs text-slate-700">
+    {detectCategory(documents[vote.dokId]?.title || "")}
+  </span>
+</div>
+</div>
+          <p className="mt-1 text-sm text-slate-500">
+            Dokument: {vote.dokId}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            {new Date(vote.datum).toLocaleString("sv-SE")}
+          </p>
+        </div>
+      ))}
+    </div>
+  </CardContent>
+</Card>
 
             <Card className="rounded-3xl border-slate-200 bg-white shadow-sm">
               <CardContent className="p-6">
