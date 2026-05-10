@@ -37,16 +37,30 @@ const Button = (props) => {
   );
 };
 
-const mockVotes = [
-  { party: "S", yes: 84, no: 0, abstain: 2, absent: 21 },
-  { party: "M", yes: 0, no: 66, abstain: 1, absent: 2 },
-  { party: "SD", yes: 0, no: 69, abstain: 0, absent: 3 },
-  { party: "V", yes: 23, no: 0, abstain: 0, absent: 1 },
-  { party: "C", yes: 0, no: 21, abstain: 0, absent: 3 },
-  { party: "KD", yes: 0, no: 18, abstain: 0, absent: 1 },
-  { party: "MP", yes: 16, no: 0, abstain: 0, absent: 2 },
-  { party: "L", yes: 0, no: 15, abstain: 0, absent: 1 },
-];
+const groupVotesByParty = (votes) => {
+  const parties = {};
+
+  votes.forEach((vote) => {
+    const party = vote.parti || "Okänt";
+
+    if (!parties[party]) {
+      parties[party] = {
+        party,
+        yes: 0,
+        no: 0,
+        abstain: 0,
+        absent: 0,
+      };
+    }
+
+    if (vote.rost === "Ja") parties[party].yes += 1;
+    else if (vote.rost === "Nej") parties[party].no += 1;
+    else if (vote.rost === "Avstår") parties[party].abstain += 1;
+    else if (vote.rost === "Frånvarande") parties[party].absent += 1;
+  });
+
+  return Object.values(parties);
+};
 
 const mainTabs = [
   { label: "Översikt", active: true },
@@ -191,8 +205,24 @@ function PartyRow({ row }) {
 
 export default function DatakratiPrototype() {
   const [query, setQuery] = useState("Hur har partierna röstat i frågor om kärnkraft sedan 2022?");
+  const [votes, setVotes] = useState([]);
+
+React.useEffect(() => {
+  async function loadVotes() {
+    const response = await fetch("/api/voteringar");
+    const data = await response.json();
+
+    const grouped = groupVotesByParty(
+      data.voteringlista.votering
+    );
+
+    setVotes(grouped);
+  }
+
+  loadVotes();
+}, []);
   const totals = useMemo(() => {
-    return mockVotes.reduce(
+    return votes.reduce(
       (acc, row) => {
         acc.yes += row.yes;
         acc.no += row.no;
@@ -337,7 +367,7 @@ export default function DatakratiPrototype() {
                 </div>
 
                 <div className="mt-6">
-                  {mockVotes.map((row) => <PartyRow key={row.party} row={row} />)}
+                  {votes.map((row) => <PartyRow key={row.party} row={row} />)}
                 </div>
               </CardContent>
             </Card>
